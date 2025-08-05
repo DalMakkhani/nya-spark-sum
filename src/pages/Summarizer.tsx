@@ -79,11 +79,10 @@ const Summarizer = () => {
     try {
       const base64 = await convertToBase64(selectedFile);
       
-      const response = await fetch('https://cors-anywhere.herokuapp.com/https://jtwx63qbu1.execute-api.us-east-1.amazonaws.com/default/pdf-summarizer-function', {
+      const response = await fetch('https://jtwx63qbu1.execute-api.us-east-1.amazonaws.com/default/pdf-summarizer-function', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest'
         },
         body: JSON.stringify({ file: base64 }),
       });
