@@ -219,11 +219,14 @@ const Summarizer = () => {
                     className="hidden"
                     id="file-upload"
                   />
-                  <label htmlFor="file-upload">
-                    <Button variant="neon" size="lg" className="cursor-pointer">
-                      Browse Files
-                    </Button>
-                  </label>
+                  <Button 
+                    variant="neon" 
+                    size="lg" 
+                    onClick={() => document.getElementById('file-upload')?.click()}
+                    className="cursor-pointer"
+                  >
+                    Browse Files
+                  </Button>
                 </div>
               ) : (
                 <div className="space-y-4">
