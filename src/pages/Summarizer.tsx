@@ -112,7 +112,7 @@ const Summarizer = () => {
       const apiUrl = 'https://jtwx63qbu1.execute-api.us-east-1.amazonaws.com/default/pdf-summarizer-function';
       console.log('🌐 Making request to:', apiUrl);
 
-      const requestPayload = { file: base64 };
+      const requestPayload = { pdf_content: base64 };
       const payloadSize = JSON.stringify(requestPayload).length;
       console.log('📦 Request payload size:', (payloadSize / 1024 / 1024).toFixed(2), 'MB');
 
