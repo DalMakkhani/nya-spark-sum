@@ -60,8 +60,29 @@ const Summarizer = () => {
   };
 
   const handleFileUpload = async (selectedFile: File) => {
+    console.log('🚀 Starting file upload process...');
+    console.log('📄 File details:', {
+      name: selectedFile.name,
+      size: selectedFile.size,
+      type: selectedFile.type,
+      sizeInMB: (selectedFile.size / 1024 / 1024).toFixed(2)
+    });
+
     if (!validatePDF(selectedFile)) {
+      console.error('❌ Invalid PDF file');
       setUploadState(prev => ({ ...prev, error: 'Please select a valid PDF file.' }));
+      return;
+    }
+
+    // File size validation (50MB limit for AWS Lambda)
+    const maxSizeInMB = 50;
+    const fileSizeInMB = selectedFile.size / 1024 / 1024;
+    if (fileSizeInMB > maxSizeInMB) {
+      console.error(`❌ File too large: ${fileSizeInMB.toFixed(2)}MB (max: ${maxSizeInMB}MB)`);
+      setUploadState(prev => ({ 
+        ...prev, 
+        error: `File is too large (${fileSizeInMB.toFixed(2)}MB). Maximum file size is ${maxSizeInMB}MB.` 
+      }));
       return;
     }
 
@@ -77,22 +98,96 @@ const Summarizer = () => {
     setDisplayedSummary('');
 
     try {
+      console.log('🔄 Converting file to base64...');
       const base64 = await convertToBase64(selectedFile);
+      const base64Size = base64.length;
+      const base64SizeInMB = (base64Size * 3 / 4) / 1024 / 1024; // Approximate size after base64 encoding
       
-      const response = await fetch('https://jtwx63qbu1.execute-api.us-east-1.amazonaws.com/default/pdf-summarizer-function', {
+      console.log('✅ Base64 conversion complete:', {
+        base64Length: base64Size,
+        estimatedSizeInMB: base64SizeInMB.toFixed(2),
+        first50Chars: base64.substring(0, 50) + '...'
+      });
+
+      const apiUrl = 'https://jtwx63qbu1.execute-api.us-east-1.amazonaws.com/default/pdf-summarizer-function';
+      console.log('🌐 Making request to:', apiUrl);
+
+      const requestPayload = { file: base64 };
+      const payloadSize = JSON.stringify(requestPayload).length;
+      console.log('📦 Request payload size:', (payloadSize / 1024 / 1024).toFixed(2), 'MB');
+
+      // Create AbortController for timeout handling
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        console.error('⏰ Request timeout after 60 seconds');
+        controller.abort();
+      }, 60000); // 60 second timeout
+
+      console.log('📤 Sending POST request...');
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json, text/plain, */*',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Cache-Control': 'no-cache',
+          'User-Agent': 'Mozilla/5.0 (compatible; PDFSummarizer/1.0)',
+          'X-Requested-With': 'XMLHttpRequest',
+          'Origin': window.location.origin,
+          'Referer': window.location.href
         },
-        body: JSON.stringify({ file: base64 }),
+        body: JSON.stringify(requestPayload),
+        signal: controller.signal,
+        mode: 'cors',
+        credentials: 'omit'
+      });
+
+      clearTimeout(timeoutId);
+
+      console.log('📥 Response received:', {
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries()),
+        ok: response.ok,
+        type: response.type,
+        url: response.url
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorText = await response.text().catch(() => 'No error message available');
+        console.error('❌ HTTP Error Response:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorBody: errorText
+        });
+        throw new Error(`HTTP ${response.status}: ${response.statusText}${errorText ? ` - ${errorText}` : ''}`);
       }
 
-      const summaryText = await response.text();
+      const contentType = response.headers.get('content-type');
+      console.log('📋 Response content-type:', contentType);
+
+      let summaryText: string;
       
+      if (contentType && contentType.includes('application/json')) {
+        console.log('🔍 Parsing JSON response...');
+        const jsonResponse = await response.json();
+        console.log('📄 JSON Response:', jsonResponse);
+        summaryText = typeof jsonResponse === 'string' ? jsonResponse : 
+                    jsonResponse.summary || jsonResponse.message || JSON.stringify(jsonResponse);
+      } else {
+        console.log('🔍 Parsing text response...');
+        summaryText = await response.text();
+      }
+
+      console.log('✅ Summary received:', {
+        length: summaryText.length,
+        preview: summaryText.substring(0, 100) + '...'
+      });
+      
+      if (!summaryText || summaryText.trim().length === 0) {
+        throw new Error('Received empty response from the server');
+      }
+
       setUploadState(prev => ({ 
         ...prev, 
         isUploading: false, 
@@ -101,13 +196,35 @@ const Summarizer = () => {
       }));
       
       setSummary(summaryText);
-    } catch (error) {
-      console.error('Error uploading file:', error);
+      console.log('🎉 Upload process completed successfully!');
+
+    } catch (error: any) {
+      console.error('💥 Error in handleFileUpload:', error);
+      
+      let errorMessage = 'Failed to analyze the document. Please try again.';
+      
+      if (error.name === 'AbortError') {
+        errorMessage = 'Request timed out. Please try again with a smaller file.';
+      } else if (error.message.includes('Failed to fetch')) {
+        errorMessage = 'Network error: Unable to connect to the server. Please check your internet connection and try again.';
+      } else if (error.message.includes('HTTP')) {
+        errorMessage = `Server error: ${error.message}`;
+      } else if (error.message) {
+        errorMessage = `Error: ${error.message}`;
+      }
+
+      console.error('🔍 Detailed error analysis:', {
+        errorName: error.name,
+        errorMessage: error.message,
+        errorStack: error.stack,
+        networkState: navigator.onLine ? 'online' : 'offline'
+      });
+
       setUploadState(prev => ({ 
         ...prev, 
         isUploading: false, 
         isAnalyzing: false, 
-        error: 'Failed to analyze the document. Please try again.' 
+        error: errorMessage
       }));
     }
   };
